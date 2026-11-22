@@ -9,6 +9,9 @@
   const loginForm = document.querySelector("#login-form");
   const adminPanel = document.querySelector("#admin-panel");
   const adminError = document.querySelector("#admin-error");
+  const responseCount = document.querySelector("#response-count");
+  const responsesList = document.querySelector("#responses-list");
+  const responsesStatus = document.querySelector("#responses-status");
   const progressBar = document.querySelector("#progress-bar");
   const progressText = document.querySelector("#progress-text");
   document.querySelector("#year").textContent = new Date().getFullYear();
@@ -87,10 +90,63 @@
     loginForm.hidden = !loginForm.hidden;
     adminToggle.querySelector("span").textContent = loginForm.hidden ? "＋" : "−";
   });
+  let responseRequest = 0;
+  const loadResponses = async () => {
+    if (!db) return;
+    const request = ++responseRequest;
+    responseCount.textContent = "…";
+    responsesStatus.textContent = "Cargando respuestas…";
+    responsesList.replaceChildren();
+    const data = [];
+    const pageSize = 500;
+    for (let start = 0; ; start += pageSize) {
+      const { data: page, error } = await db.from("survey_responses").select("tracking_code, created_at").order("created_at", { ascending: false }).range(start, start + pageSize - 1);
+      if (request !== responseRequest) return;
+      if (error) {
+        responseCount.textContent = "—";
+        responsesStatus.textContent = "No se pudieron cargar las respuestas.";
+        return;
+      }
+      data.push(...page);
+      if (page.length < pageSize) break;
+    }
+    responseCount.textContent = new Intl.NumberFormat("es-MX").format(data.length);
+    responsesStatus.textContent = data.length ? `${data.length} códigos · más recientes primero` : "Aún no hay respuestas registradas.";
+    if (!data.length) return;
+    const fragment = document.createDocumentFragment();
+    for (const response of data) {
+      const row = document.createElement("article");
+      row.className = "response-row";
+      const code = document.createElement("code");
+      code.textContent = response.tracking_code;
+      const date = document.createElement("time");
+      date.dateTime = response.created_at;
+      date.textContent = new Date(response.created_at).toLocaleString("es-MX");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "text-button response-view";
+      button.textContent = "VER RESPUESTA";
+      button.addEventListener("click", () => {
+        document.querySelector("#lookup-code").value = response.tracking_code;
+        document.querySelector("#lookup-form").requestSubmit();
+      });
+      row.append(code, date, button);
+      fragment.append(row);
+    }
+    responsesList.replaceChildren(fragment);
+  };
   const showAdmin = (session) => {
     loginForm.hidden = !!session;
     adminToggle.hidden = !!session;
     adminPanel.hidden = !session;
+    if (session) loadResponses();
+    else {
+      responseRequest++;
+      responseCount.textContent = "—";
+      responsesStatus.textContent = "Inicia sesión para cargar las respuestas.";
+      responsesList.replaceChildren();
+      document.querySelector("#lookup-result").replaceChildren();
+    }
   };
   if (db) {
     db.auth.getSession().then(({ data }) => showAdmin(data.session));
@@ -115,6 +171,7 @@
     if (db) await db.auth.signOut();
     document.querySelector("#lookup-result").replaceChildren();
   });
+  document.querySelector("#refresh-responses").addEventListener("click", loadResponses);
   document.querySelector("#lookup-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const result = document.querySelector("#lookup-result");
