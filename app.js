@@ -97,20 +97,30 @@
     responseCount.textContent = "…";
     responsesStatus.textContent = "Cargando respuestas…";
     responsesList.replaceChildren();
+    const { count, error: countError } = await db.from("survey_responses").select("id", { count: "exact", head: true });
+    if (request !== responseRequest) return;
+    if (countError) {
+      responseCount.textContent = "—";
+      responsesStatus.textContent = countError.code === "42501"
+        ? "Esta cuenta no tiene permiso para consultar las respuestas. Verifica que esté autorizada como administrador."
+        : `No se pudo consultar el total (${countError.message}).`;
+      return;
+    }
+    responseCount.textContent = new Intl.NumberFormat("es-MX").format(count ?? 0);
     const data = [];
     const pageSize = 500;
     for (let start = 0; ; start += pageSize) {
       const { data: page, error } = await db.from("survey_responses").select("tracking_code, created_at").order("created_at", { ascending: false }).range(start, start + pageSize - 1);
       if (request !== responseRequest) return;
       if (error) {
-        responseCount.textContent = "—";
-        responsesStatus.textContent = "No se pudieron cargar las respuestas.";
+        responsesStatus.textContent = error.code === "42501"
+          ? "El total está actualizado, pero esta cuenta no tiene permiso para listar los códigos. Verifica que esté autorizada como administrador."
+          : `El total está actualizado, pero no se pudieron cargar los códigos (${error.message}).`;
         return;
       }
       data.push(...page);
       if (page.length < pageSize) break;
     }
-    responseCount.textContent = new Intl.NumberFormat("es-MX").format(data.length);
     responsesStatus.textContent = data.length ? `${data.length} códigos · más recientes primero` : "Aún no hay respuestas registradas.";
     if (!data.length) return;
     const fragment = document.createDocumentFragment();
